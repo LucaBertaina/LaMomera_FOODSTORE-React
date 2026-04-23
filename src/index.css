@@ -1,0 +1,17 @@
+@import "tailwindcss";
+
+@theme {
+
+  --color-neon-amber: #FF8F1F;
+  --color-brand-burgundy: #6E323A;
+  --color-brand-dark: #000000;
+  --color-brand-gray: #634560;
+  --color-brand-cream: #FFFEEA;
+
+  --shadow-neon: 0 0 5px #FF8F1F, 0 0 20px #FF8F1F;
+}
+
+body {
+
+  @apply bg-brand-dark text-brand-cream;
+}
