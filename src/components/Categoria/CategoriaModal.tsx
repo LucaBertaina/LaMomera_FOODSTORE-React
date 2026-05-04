@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import type { Categoria, CategoriaCreate } from '../../types/categoria';
 
 interface Props {
@@ -10,24 +10,14 @@ interface Props {
 }
 
 export const CategoriaModal = ({ isOpen, onClose, onSubmit, categoriasDisponibles, categoriaParaEditar }: Props) => {
-  const [nombre, setNombre] = useState('');
-  const [descripcion, setDescripcion] = useState('');
-  const [imagenUrl, setImagenUrl] = useState('');
-  const [parentId, setParentId] = useState('');
-
-  useEffect(() => {
-    if (categoriaParaEditar) {
-      setNombre(categoriaParaEditar.nombre);
-      setDescripcion(categoriaParaEditar.descripcion);
-      setImagenUrl(categoriaParaEditar.imagen_url);
-      setParentId(categoriaParaEditar.parent_id === null ? '' : String(categoriaParaEditar.parent_id));
-    } else {
-      setNombre('');
-      setDescripcion('');
-      setImagenUrl('');
-      setParentId('');
-    }
-  }, [categoriaParaEditar, isOpen]);
+  const [nombre, setNombre] = useState(categoriaParaEditar?.nombre ?? '');
+  const [descripcion, setDescripcion] = useState(categoriaParaEditar?.descripcion ?? '');
+  const [imagenUrl, setImagenUrl] = useState(categoriaParaEditar?.imagen_url ?? '');
+  const [parentId, setParentId] = useState(
+    categoriaParaEditar?.parent_id === null || categoriaParaEditar?.parent_id === undefined
+      ? ''
+      : String(categoriaParaEditar.parent_id),
+  );
 
   if (!isOpen) return null;
 

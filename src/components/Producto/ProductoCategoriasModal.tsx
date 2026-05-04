@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import type { Categoria } from '../../types/categoria';
 import type { Producto } from '../../types/producto';
 
@@ -26,12 +26,6 @@ export const ProductoCategoriasModal = ({
   onRemoveCategoria,
 }: Props) => {
   const [categoriaId, setCategoriaId] = useState('');
-
-  useEffect(() => {
-    if (isOpen) {
-      setCategoriaId('');
-    }
-  }, [isOpen, producto]);
 
   if (!isOpen || !producto) return null;
 

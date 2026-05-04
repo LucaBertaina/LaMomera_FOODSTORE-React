@@ -1,19 +1,45 @@
 import { useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { IngredienteDetailModal } from '../components/Ingrediente/IngredienteDetailModal';
 import { IngredienteList } from '../components/Ingrediente/IngredienteList';
 import { IngredienteModal } from '../components/Ingrediente/IngredienteModal';
 import { DeleteConfirmModal } from '../components/Shared/DeleteConfirmModal';
-import { useIngrediente } from '../hooks/useIngrediente';
+import { Navbar } from '../components/Navbar/NavbarComponent';
 import type { Ingrediente, IngredienteCreate } from '../types/ingrediente';
+import { deleteIngredientRequest, fetchIngredients, saveIngredientRequest } from '../api/ingrediente.service';
+
+const INGREDIENTS_QUERY_KEY = ['ingredientes'];
 
 export const IngredientesPage = () => {
-  const { ingredientesActivos, isLoading, isError, saveIngrediente, deleteIngrediente, isDeleting, deleteError } =
-    useIngrediente();
+  const queryClient = useQueryClient();
+
+  const ingredientsQuery = useQuery({
+    queryKey: INGREDIENTS_QUERY_KEY,
+    queryFn: fetchIngredients,
+  });
+
+  const invalidateIngredients = async () => {
+    await queryClient.invalidateQueries({ queryKey: INGREDIENTS_QUERY_KEY });
+  };
+
+  const saveIngredientMutation = useMutation({
+    mutationFn: saveIngredientRequest,
+    onSuccess: invalidateIngredients,
+  });
+
+  const deleteIngredientMutation = useMutation({
+    mutationFn: deleteIngredientRequest,
+    onSuccess: invalidateIngredients,
+  });
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [ingredienteEnEdicion, setIngredienteEnEdicion] = useState<Ingrediente | null>(null);
   const [ingredienteDetalle, setIngredienteDetalle] = useState<Ingrediente | null>(null);
   const [ingredienteParaEliminar, setIngredienteParaEliminar] = useState<Ingrediente | null>(null);
   const [errorEliminacion, setErrorEliminacion] = useState<string | null>(null);
+
+  const ingredientesActivos = (ingredientsQuery.data ?? []).filter((ingrediente) => !ingrediente.borrado);
+  const isLoading = ingredientsQuery.isLoading;
+  const isError = ingredientsQuery.isError;
 
   const openNewIngredienteModal = () => {
     setIngredienteEnEdicion(null);
@@ -31,7 +57,10 @@ export const IngredientesPage = () => {
   };
 
   const handleSubmit = (data: IngredienteCreate) => {
-    saveIngrediente(data, ingredienteEnEdicion);
+    saveIngredientMutation.mutate({
+      ingredientId: ingredienteEnEdicion?.id,
+      data,
+    });
 
     setIsModalOpen(false);
     setIngredienteEnEdicion(null);
@@ -42,7 +71,7 @@ export const IngredientesPage = () => {
       return;
     }
 
-    deleteIngrediente(ingredienteParaEliminar, {
+    deleteIngredientMutation.mutate(ingredienteParaEliminar, {
       onSuccess: () => {
         setIngredienteParaEliminar(null);
         setErrorEliminacion(null);
@@ -55,7 +84,9 @@ export const IngredientesPage = () => {
   };
 
   return (
-    <main className="container mx-auto px-4 py-10">
+    <>
+      <Navbar />
+      <main className="container mx-auto px-4 py-10">
       <div className="mb-10 flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
         <div>
           <h2 className="text-4xl font-black uppercase italic tracking-tighter">Ingredientes</h2>
@@ -87,21 +118,24 @@ export const IngredientesPage = () => {
         />
       )}
 
-      {errorEliminacion || deleteError ? (
+      {errorEliminacion || deleteIngredientMutation.error ? (
         <div className="mt-4 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
-          {errorEliminacion ?? (deleteError instanceof Error ? deleteError.message : 'Error al eliminar el ingrediente')}
+          {errorEliminacion ?? (deleteIngredientMutation.error instanceof Error ? deleteIngredientMutation.error.message : 'Error al eliminar el ingrediente')}
         </div>
       ) : null}
 
-      <IngredienteModal
-        isOpen={isModalOpen}
-        onClose={() => {
-          setIsModalOpen(false);
-          setIngredienteEnEdicion(null);
-        }}
-        onSubmit={handleSubmit}
-        ingredienteParaEditar={ingredienteEnEdicion}
-      />
+      {isModalOpen ? (
+        <IngredienteModal
+          key={ingredienteEnEdicion?.id ?? 'new-ingrediente'}
+          isOpen={true}
+          onClose={() => {
+            setIsModalOpen(false);
+            setIngredienteEnEdicion(null);
+          }}
+          onSubmit={handleSubmit}
+          ingredienteParaEditar={ingredienteEnEdicion}
+        />
+      ) : null}
 
       <IngredienteDetailModal
         isOpen={ingredienteDetalle !== null}
@@ -117,10 +151,11 @@ export const IngredientesPage = () => {
             ? `Vas a eliminar "${ingredienteParaEliminar.nombre}". El backend la marcará como borrada.`
             : ''
         }
-        isConfirming={isDeleting}
+        isConfirming={deleteIngredientMutation.isPending}
         onClose={() => setIngredienteParaEliminar(null)}
         onConfirm={handleDeleteConfirm}
       />
-    </main>
+      </main>
+    </>
   );
 };

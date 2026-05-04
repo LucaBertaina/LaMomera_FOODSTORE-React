@@ -4,95 +4,42 @@ import { CategoriaDetailModal } from '../components/Categoria/CategoriaDetailMod
 import { CategoriaList } from '../components/Categoria/CategoriaList';
 import { CategoriaModal } from '../components/Categoria/CategoriaModal';
 import { DeleteConfirmModal } from '../components/Shared/DeleteConfirmModal';
+import { Navbar } from '../components/Navbar/NavbarComponent';
 import type { Categoria, CategoriaCreate } from '../types/categoria';
+import { deleteCategoryRequest, fetchCategories, saveCategoryRequest } from '../api/categoria.service';
 
-const CATEGORIAS_QUERY_KEY = ['categorias'];
-const API_URL = '/api/categorias/';
-
-async function fetchCategorias(): Promise<Categoria[]> {
-  const response = await fetch(API_URL);
-  if (!response.ok) {
-    throw new Error('Error al obtener las categorías');
-  }
-
-  return response.json();
-}
-
-async function createCategoria(data: CategoriaCreate) {
-  const response = await fetch(API_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-  });
-
-  if (!response.ok) {
-    throw new Error('Error al crear la categoría');
-  }
-}
-
-async function updateCategoria(params: { id: number; data: CategoriaCreate }) {
-  const response = await fetch(`${API_URL}${params.id}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(params.data),
-  });
-
-  if (!response.ok) {
-    throw new Error('Error al actualizar la categoría');
-  }
-}
-
-async function deleteCategoria(categoria: Categoria) {
-  const response = await fetch(`${API_URL}${categoria.id}`, { method: 'DELETE' });
-
-  if (response.status === 404) {
-    throw new Error('Ya fue eliminado o no existe.');
-  }
-
-  if (!response.ok) {
-    throw new Error('Error al eliminar la categoría');
-  }
-}
+const CATEGORIES_QUERY_KEY = ['categorias'];
+const CATEGORIES_TREE_QUERY_KEY = ['categorias', 'tree'];
 
 export const CategoriasPage = () => {
   const queryClient = useQueryClient();
+
+  const categoriesQuery = useQuery({
+    queryKey: CATEGORIES_QUERY_KEY,
+    queryFn: fetchCategories,
+  });
+
+  const invalidateCategories = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: CATEGORIES_QUERY_KEY }),
+      queryClient.invalidateQueries({ queryKey: CATEGORIES_TREE_QUERY_KEY }),
+    ]);
+  };
+
+  const saveCategoryMutation = useMutation({
+    mutationFn: saveCategoryRequest,
+    onSuccess: invalidateCategories,
+  });
+
+  const deleteCategoryMutation = useMutation({
+    mutationFn: deleteCategoryRequest,
+    onSuccess: invalidateCategories,
+  });
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [categoriaEnEdicion, setCategoriaEnEdicion] = useState<Categoria | null>(null);
   const [categoriaDetalle, setCategoriaDetalle] = useState<Categoria | null>(null);
   const [categoriaParaEliminar, setCategoriaParaEliminar] = useState<Categoria | null>(null);
   const [errorEliminacion, setErrorEliminacion] = useState<string | null>(null);
-
-  const categoriasQuery = useQuery({
-    queryKey: CATEGORIAS_QUERY_KEY,
-    queryFn: fetchCategorias,
-  });
-
-  const createMutation = useMutation({
-    mutationFn: createCategoria,
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: CATEGORIAS_QUERY_KEY });
-    },
-  });
-
-  const updateMutation = useMutation({
-    mutationFn: updateCategoria,
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: CATEGORIAS_QUERY_KEY });
-    },
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: deleteCategoria,
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: CATEGORIAS_QUERY_KEY });
-      setCategoriaParaEliminar(null);
-      setErrorEliminacion(null);
-    },
-    onError: (error: unknown) => {
-      setCategoriaParaEliminar(null);
-      setErrorEliminacion(error instanceof Error ? error.message : 'Error al eliminar la categoría');
-    },
-  });
 
   const openNewCategoriaModal = () => {
     setCategoriaEnEdicion(null);
@@ -109,21 +56,22 @@ export const CategoriasPage = () => {
     setErrorEliminacion(null);
   };
 
-  const categoriasActivas = (categoriasQuery.data ?? []).filter((categoria) => !categoria.borrado);
+  const categoriasActivas = (categoriesQuery.data ?? []).filter((categoria) => !categoria.borrado);
 
   const handleSubmit = (data: CategoriaCreate) => {
-    if (categoriaEnEdicion) {
-      updateMutation.mutate({ id: categoriaEnEdicion.id, data });
-    } else {
-      createMutation.mutate(data);
-    }
+    saveCategoryMutation.mutate({
+      categoryId: categoriaEnEdicion?.id,
+      data,
+    });
 
     setIsModalOpen(false);
     setCategoriaEnEdicion(null);
   };
 
   return (
-    <main className="container mx-auto px-4 py-10">
+    <>
+      <Navbar />
+      <main className="container mx-auto px-4 py-10">
       <div className="mb-10 flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
         <div>
           <h2 className="text-4xl font-black uppercase italic tracking-tighter">Categorías</h2>
@@ -138,11 +86,11 @@ export const CategoriasPage = () => {
         </button>
       </div>
 
-      {categoriasQuery.isLoading ? (
+      {categoriesQuery.isLoading ? (
         <div className="py-20 text-center font-bold uppercase tracking-widest text-neon-amber animate-pulse">
           Sincronizando categorías...
         </div>
-      ) : categoriasQuery.isError ? (
+      ) : categoriesQuery.isError ? (
         <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-6 text-red-300">
           No se pudieron cargar las categorías.
         </div>
@@ -161,16 +109,19 @@ export const CategoriasPage = () => {
         </div>
       ) : null}
 
-      <CategoriaModal
-        isOpen={isModalOpen}
-        onClose={() => {
-          setIsModalOpen(false);
-          setCategoriaEnEdicion(null);
-        }}
-        onSubmit={handleSubmit}
-        categoriasDisponibles={categoriasActivas}
-        categoriaParaEditar={categoriaEnEdicion}
-      />
+      {isModalOpen ? (
+        <CategoriaModal
+          key={categoriaEnEdicion?.id ?? 'new-categoria'}
+          isOpen={true}
+          onClose={() => {
+            setIsModalOpen(false);
+            setCategoriaEnEdicion(null);
+          }}
+          onSubmit={handleSubmit}
+          categoriasDisponibles={categoriasActivas}
+          categoriaParaEditar={categoriaEnEdicion}
+        />
+      ) : null}
 
       <CategoriaDetailModal
         isOpen={categoriaDetalle !== null}
@@ -186,14 +137,24 @@ export const CategoriasPage = () => {
             ? `Vas a eliminar "${categoriaParaEliminar.nombre}". El backend la marcará como borrada.`
             : ''
         }
-        isConfirming={deleteMutation.isPending}
+        isConfirming={deleteCategoryMutation.isPending}
         onClose={() => setCategoriaParaEliminar(null)}
         onConfirm={() => {
           if (categoriaParaEliminar) {
-            deleteMutation.mutate(categoriaParaEliminar);
+            deleteCategoryMutation.mutate(categoriaParaEliminar, {
+              onSuccess: () => {
+                setCategoriaParaEliminar(null);
+                setErrorEliminacion(null);
+              },
+              onError: (error: unknown) => {
+                setCategoriaParaEliminar(null);
+                setErrorEliminacion(error instanceof Error ? error.message : 'Error al eliminar la categoría');
+              },
+            });
           }
         }}
       />
-    </main>
+      </main>
+    </>
   );
 };

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import type { Ingrediente, IngredienteCreate } from '../../types/ingrediente';
 
 interface Props {
@@ -15,19 +15,15 @@ const emptyIngrediente = {
 };
 
 export const IngredienteModal = ({ isOpen, onClose, onSubmit, ingredienteParaEditar }: Props) => {
-  const [form, setForm] = useState(emptyIngrediente);
-
-  useEffect(() => {
-    if (ingredienteParaEditar) {
-      setForm({
-        nombre: ingredienteParaEditar.nombre,
-        descripcion: ingredienteParaEditar.descripcion,
-        es_alergeno: ingredienteParaEditar.es_alergeno,
-      });
-    } else if (isOpen) {
-      setForm(emptyIngrediente);
-    }
-  }, [ingredienteParaEditar, isOpen]);
+  const [form, setForm] = useState(() =>
+    ingredienteParaEditar
+      ? {
+          nombre: ingredienteParaEditar.nombre,
+          descripcion: ingredienteParaEditar.descripcion,
+          es_alergeno: ingredienteParaEditar.es_alergeno,
+        }
+      : emptyIngrediente,
+  );
 
   if (!isOpen) return null;
 

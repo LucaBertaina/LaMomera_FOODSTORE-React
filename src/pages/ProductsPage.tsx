@@ -5,111 +5,22 @@ import { ProductoDetailModal } from '../components/Producto/ProductoDetailModal'
 import { ProductoModal } from '../components/Producto/ProductoModal';
 import { ProductoCategoriasModal } from '../components/Producto/ProductoCategoriasModal';
 import { DeleteConfirmModal } from '../components/Shared/DeleteConfirmModal';
+import { Navbar } from '../components/Navbar/NavbarComponent';
 import type { CategoriaTree } from '../types/categoria';
-import type { Ingrediente } from '../types/ingrediente';
 import type { Producto, ProductoCreate, ProductoUpdate } from '../types/producto';
-import { useCategorias } from '../hooks/useCategorias';
+import { fetchCategoriesTree } from '../api/categoria.service';
+import { fetchIngredients } from '../api/ingrediente.service';
+import {
+  assignCategoryToProductRequest,
+  deleteProductRequest,
+  fetchProducts,
+  removeCategoryFromProductRequest,
+  saveProductRequest,
+} from '../api/producto.service';
 
-const PRODUCTOS_QUERY_KEY = ['productos'];
-const INGREDIENTES_QUERY_KEY = ['ingredientes'];
-const API_URL = '/api/productos/';
-const INGREDIENTES_API_URL = '/api/ingredientes/';
-
-async function fetchProductos(): Promise<Producto[]> {
-  const response = await fetch(API_URL);
-  if (!response.ok) {
-    throw new Error(`Error al obtener los productos (HTTP ${response.status})`);
-  }
-
-  return response.json();
-}
-
-async function fetchIngredientes(): Promise<Ingrediente[]> {
-  const response = await fetch(INGREDIENTES_API_URL);
-  if (!response.ok) {
-    throw new Error('Error al obtener los ingredientes');
-  }
-
-  return response.json();
-}
-
-async function createProducto(data: ProductoCreate): Promise<Producto> {
-  const response = await fetch(API_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-  });
-
-  if (!response.ok) {
-    throw new Error('Error al crear el producto');
-  }
-
-  return response.json();
-}
-
-async function updateProducto(params: { id: number; data: ProductoUpdate }): Promise<Producto> {
-  const response = await fetch(`${API_URL}${params.id}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(params.data),
-  });
-
-  if (!response.ok) {
-    throw new Error('Error al actualizar el producto');
-  }
-
-  return response.json();
-}
-
-async function assignCategoriaToProducto(params: { productoId: number; categoriaId: number }) {
-  const response = await fetch(`${API_URL}${params.productoId}/categorias`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ categoria_id: params.categoriaId }),
-  });
-
-  if (!response.ok) {
-    throw new Error('Error al asignar la categoría al producto');
-  }
-}
-
-async function removeCategoriaFromProducto(params: { productoId: number; categoriaId: number }) {
-  const response = await fetch(`${API_URL}${params.productoId}/categorias/${params.categoriaId}`, {
-    method: 'DELETE',
-  });
-
-  if (response.status === 404) {
-    throw new Error('La categoría ya fue eliminada o no existe.');
-  }
-
-  if (!response.ok) {
-    throw new Error('Error al eliminar la categoría del producto');
-  }
-}
-
-async function assignIngredienteToProducto(params: { productoId: number; ingredienteId: number }) {
-  const response = await fetch(`${API_URL}${params.productoId}/ingredientes`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ingrediente_id: params.ingredienteId }),
-  });
-
-  if (!response.ok) {
-    throw new Error('Error al asignar el ingrediente al producto');
-  }
-}
-
-async function deleteProducto(producto: Producto) {
-  const response = await fetch(`${API_URL}${producto.id}`, { method: 'DELETE' });
-
-  if (response.status === 404) {
-    throw new Error('Ya fue eliminado o no existe.');
-  }
-
-  if (!response.ok) {
-    throw new Error('Error al eliminar el producto');
-  }
-}
+const CATEGORIES_TREE_QUERY_KEY = ['categorias', 'tree'];
+const PRODUCTS_QUERY_KEY = ['productos'];
+const INGREDIENTS_QUERY_KEY = ['ingredientes'];
 
 function getAllDescendantCategoriaIds(categoriaTree: CategoriaTree): number[] {
   const ids: number[] = [categoriaTree.id];
@@ -134,14 +45,15 @@ function findCategoriaInTree(id: number, arbol: CategoriaTree[]): CategoriaTree 
   return null;
 }
 
-function buildCategoriaOptions(arbol: CategoriaTree[], nivel: number = 0): Array<{ id: number; nombre: string; nivel: number }> {
-  const options: Array<{ id: number; nombre: string; nivel: number }> = [];
+function buildCategoriaOptions(arbol: CategoriaTree[], nivel: number = 0): Array<{ id: number; nombre: string; nivel: number; borrado?: boolean }> {
+  const options: Array<{ id: number; nombre: string; nivel: number; borrado?: boolean }> = [];
   
   for (const cat of arbol) {
     options.push({
       id: cat.id,
       nombre: cat.nombre,
       nivel,
+      borrado: cat.borrado,
     });
     if (cat.children && cat.children.length > 0) {
       options.push(...buildCategoriaOptions(cat.children, nivel + 1));
@@ -151,9 +63,60 @@ function buildCategoriaOptions(arbol: CategoriaTree[], nivel: number = 0): Array
   return options;
 }
 
+function flattenCategories(arbol: CategoriaTree[]): CategoriaTree[] {
+  const result: CategoriaTree[] = [];
+
+  for (const categoria of arbol) {
+    result.push(categoria);
+    if (categoria.children.length > 0) {
+      result.push(...flattenCategories(categoria.children));
+    }
+  }
+
+  return result;
+}
+
 export const ProductsPage = () => {
   const queryClient = useQueryClient();
-  const { categorias, categoriasArbol } = useCategorias();
+
+  const categoriesTreeQuery = useQuery({
+    queryKey: CATEGORIES_TREE_QUERY_KEY,
+    queryFn: fetchCategoriesTree,
+  });
+
+  const productsQuery = useQuery({
+    queryKey: PRODUCTS_QUERY_KEY,
+    queryFn: fetchProducts,
+  });
+
+  const ingredientsQuery = useQuery({
+    queryKey: INGREDIENTS_QUERY_KEY,
+    queryFn: fetchIngredients,
+  });
+
+  const invalidateProducts = async () => {
+    await queryClient.invalidateQueries({ queryKey: PRODUCTS_QUERY_KEY });
+  };
+
+  const saveProductMutation = useMutation({
+    mutationFn: saveProductRequest,
+    onSuccess: invalidateProducts,
+  });
+
+  const deleteProductMutation = useMutation({
+    mutationFn: deleteProductRequest,
+    onSuccess: invalidateProducts,
+  });
+
+  const assignCategoryToProductMutation = useMutation({
+    mutationFn: assignCategoryToProductRequest,
+    onSuccess: invalidateProducts,
+  });
+
+  const removeCategoryFromProductMutation = useMutation({
+    mutationFn: removeCategoryFromProductRequest,
+    onSuccess: invalidateProducts,
+  });
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [productoEnEdicion, setProductoEnEdicion] = useState<Producto | null>(null);
   const [productoDetalle, setProductoDetalle] = useState<Producto | null>(null);
@@ -162,68 +125,6 @@ export const ProductsPage = () => {
   const [errorEliminacion, setErrorEliminacion] = useState<string | null>(null);
   const [categoriaEnEliminacionId, setCategoriaEnEliminacionId] = useState<number | null>(null);
   const [categoriaFiltradaId, setCategoriaFiltradaId] = useState('');
-
-  const productosQuery = useQuery({
-    queryKey: PRODUCTOS_QUERY_KEY,
-    queryFn: fetchProductos,
-  });
-
-  const ingredientesQuery = useQuery({
-    queryKey: INGREDIENTES_QUERY_KEY,
-    queryFn: fetchIngredientes,
-  });
-
-  const createMutation = useMutation({
-    mutationFn: createProducto,
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: PRODUCTOS_QUERY_KEY });
-    },
-  });
-
-  const updateMutation = useMutation({
-    mutationFn: updateProducto,
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: PRODUCTOS_QUERY_KEY });
-    },
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: deleteProducto,
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: PRODUCTOS_QUERY_KEY });
-      setProductoParaEliminar(null);
-      setErrorEliminacion(null);
-    },
-    onError: (error: unknown) => {
-      setProductoParaEliminar(null);
-      setErrorEliminacion(error instanceof Error ? error.message : 'Error al eliminar el producto');
-    },
-  });
-
-  const assignCategoriaMutation = useMutation({
-    mutationFn: assignCategoriaToProducto,
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: PRODUCTOS_QUERY_KEY });
-    },
-  });
-
-  const removeCategoriaMutation = useMutation({
-    mutationFn: removeCategoriaFromProducto,
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: PRODUCTOS_QUERY_KEY });
-      setCategoriaEnEliminacionId(null);
-    },
-    onError: () => {
-      setCategoriaEnEliminacionId(null);
-    },
-  });
-
-  const assignIngredienteMutation = useMutation({
-    mutationFn: assignIngredienteToProducto,
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: PRODUCTOS_QUERY_KEY });
-    },
-  });
 
   const openNewProductoModal = () => {
     setProductoEnEdicion(null);
@@ -244,12 +145,13 @@ export const ProductsPage = () => {
     setErrorEliminacion(null);
   };
 
-  const todaCategoriasConNivel = buildCategoriaOptions(categoriasArbol);
+  const categoriesTree = categoriesTreeQuery.data ?? [];
+  const ingredients = ingredientsQuery.data ?? [];
 
+  const todaCategoriasConNivel = buildCategoriaOptions(categoriesTree);
+  const categoriasActivas = flattenCategories(categoriesTree).filter((categoria) => !categoria.borrado);
 
-  const categoriasActivas = categorias.filter((categoria) => !categoria.borrado);
-
-  const productosActivos = (productosQuery.data ?? []).filter((producto) => !producto.borrado);
+  const productosActivos = (productsQuery.data ?? []).filter((producto) => !producto.borrado);
 
   const productosVisibles = productosActivos.filter((producto) => {
     if (!categoriaFiltradaId) {
@@ -258,7 +160,7 @@ export const ProductsPage = () => {
 
     const categoriaIdSeleccionada = Number(categoriaFiltradaId);
 
-    const categoriaPadreSeleccionada = findCategoriaInTree(categoriaIdSeleccionada, categoriasArbol);
+    const categoriaPadreSeleccionada = findCategoriaInTree(categoriaIdSeleccionada, categoriesTree);
     if (!categoriaPadreSeleccionada) {
       return false;
     }
@@ -272,24 +174,11 @@ export const ProductsPage = () => {
 
   const handleSubmit = async (data: ProductoCreate | ProductoUpdate, ingredienteIds: number[]) => {
     try {
-      let productoGuardado: Producto;
-
-      if (productoEnEdicion) {
-        productoGuardado = await updateMutation.mutateAsync({ id: productoEnEdicion.id, data: data as ProductoUpdate });
-      } else {
-        productoGuardado = await createMutation.mutateAsync(data as ProductoCreate);
-      }
-
-      if (ingredienteIds.length > 0) {
-        await Promise.all(
-          ingredienteIds.map((ingredienteId) =>
-            assignIngredienteMutation.mutateAsync({
-              productoId: productoGuardado.id,
-              ingredienteId,
-            }),
-          ),
-        );
-      }
+      await saveProductMutation.mutateAsync({
+        productId: productoEnEdicion?.id,
+        data,
+        ingredientIds: ingredienteIds,
+      });
     } finally {
       setIsModalOpen(false);
       setProductoEnEdicion(null);
@@ -301,7 +190,7 @@ export const ProductsPage = () => {
       return;
     }
 
-    assignCategoriaMutation.mutate(
+    assignCategoryToProductMutation.mutate(
       { productoId: productoParaCategorias.id, categoriaId },
       {
         onSuccess: () => {
@@ -317,11 +206,23 @@ export const ProductsPage = () => {
     }
 
     setCategoriaEnEliminacionId(categoriaId);
-    removeCategoriaMutation.mutate({ productoId: productoParaCategorias.id, categoriaId });
+    removeCategoryFromProductMutation.mutate(
+      { productoId: productoParaCategorias.id, categoriaId },
+      {
+        onSuccess: () => {
+          setCategoriaEnEliminacionId(null);
+        },
+        onError: () => {
+          setCategoriaEnEliminacionId(null);
+        },
+      },
+    );
   };
 
   return (
-    <main className="container mx-auto px-4 py-10">
+    <>
+      <Navbar />
+      <main className="container mx-auto px-4 py-10">
       <div className="mb-10 flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
         <div>
           <h2 className="text-4xl font-black uppercase italic tracking-tighter">Productos</h2>
@@ -338,10 +239,7 @@ export const ProductsPage = () => {
             >
               <option value="">Todas las categorías</option>
               {todaCategoriasConNivel
-                .filter((cat) => {
-                  const catData = categorias.find((c) => c.id === cat.id);
-                  return catData && !catData.borrado;
-                })
+                .filter((cat) => !cat.borrado)
                 .map((categoria) => (
                   <option key={categoria.id} value={categoria.id} className="bg-brand-dark">
                     {Array(categoria.nivel).fill('—').join('')} {categoria.nombre}
@@ -359,14 +257,14 @@ export const ProductsPage = () => {
         </div>
       </div>
 
-      {productosQuery.isLoading ? (
+      {productsQuery.isLoading ? (
         <div className="py-20 text-center font-bold uppercase tracking-widest text-neon-amber animate-pulse">
           Sincronizando productos...
         </div>
-      ) : productosQuery.isError ? (
+      ) : productsQuery.isError ? (
         <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-6 text-red-300">
           No se pudieron cargar los productos.
-          <p className="mt-2 text-xs text-red-200/90">{productosQuery.error.message}</p>
+          <p className="mt-2 text-xs text-red-200/90">{productsQuery.error.message}</p>
         </div>
       ) : productosVisibles.length === 0 ? (
         <div className="rounded-xl border border-brand-gray/40 bg-brand-gray/10 px-4 py-10 text-center text-brand-cream/60">
@@ -388,30 +286,36 @@ export const ProductsPage = () => {
         </div>
       ) : null}
 
-      <ProductoModal
-        isOpen={isModalOpen}
-        onClose={() => {
-          setIsModalOpen(false);
-          setProductoEnEdicion(null);
-        }}
-        onSubmit={handleSubmit}
-        categoriasDisponibles={categoriasActivas}
-        isLoadingCategorias={false}
-        ingredientesDisponibles={ingredientesQuery.data ?? []}
-        productoParaEditar={productoEnEdicion}
-      />
+      {isModalOpen ? (
+        <ProductoModal
+          key={productoEnEdicion?.id ?? 'new-producto'}
+          isOpen={true}
+          onClose={() => {
+            setIsModalOpen(false);
+            setProductoEnEdicion(null);
+          }}
+          onSubmit={handleSubmit}
+          categoriasDisponibles={categoriasActivas}
+          isLoadingCategorias={false}
+          ingredientesDisponibles={ingredients}
+          productoParaEditar={productoEnEdicion}
+        />
+      ) : null}
 
-      <ProductoCategoriasModal
-        isOpen={productoParaCategorias !== null}
-        producto={productoParaCategorias}
-        categorias={categoriasActivas}
-        isLoadingCategorias={false}
-        isSaving={assignCategoriaMutation.isPending}
-        isRemovingCategoriaId={categoriaEnEliminacionId}
-        onClose={() => setProductoParaCategorias(null)}
-        onAddCategoria={handleAssignCategoria}
-        onRemoveCategoria={handleRemoveCategoria}
-      />
+      {productoParaCategorias ? (
+        <ProductoCategoriasModal
+          key={productoParaCategorias.id}
+          isOpen={true}
+          producto={productoParaCategorias}
+          categorias={categoriasActivas}
+          isLoadingCategorias={false}
+          isSaving={assignCategoryToProductMutation.isPending}
+          isRemovingCategoriaId={categoriaEnEliminacionId}
+          onClose={() => setProductoParaCategorias(null)}
+          onAddCategoria={handleAssignCategoria}
+          onRemoveCategoria={handleRemoveCategoria}
+        />
+      ) : null}
 
       <ProductoDetailModal
         isOpen={productoDetalle !== null}
@@ -427,14 +331,24 @@ export const ProductsPage = () => {
             ? `Vas a eliminar "${productoParaEliminar.nombre}". El backend lo marcará como borrado.`
             : ''
         }
-        isConfirming={deleteMutation.isPending}
+        isConfirming={deleteProductMutation.isPending}
         onClose={() => setProductoParaEliminar(null)}
         onConfirm={() => {
           if (productoParaEliminar) {
-            deleteMutation.mutate(productoParaEliminar);
+            deleteProductMutation.mutate(productoParaEliminar, {
+              onSuccess: () => {
+                setProductoParaEliminar(null);
+                setErrorEliminacion(null);
+              },
+              onError: (error: unknown) => {
+                setProductoParaEliminar(null);
+                setErrorEliminacion(error instanceof Error ? error.message : 'Error al eliminar el producto');
+              },
+            });
           }
         }}
       />
-    </main>
+      </main>
+    </>
   );
 };

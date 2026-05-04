@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import type { Categoria } from '../../types/categoria';
 import type { Ingrediente } from '../../types/ingrediente';
 import type { Producto, ProductoCreate, ProductoUpdate } from '../../types/producto';
@@ -24,6 +24,25 @@ const emptyProducto = {
   ingrediente_ids: [] as number[],
 };
 
+const getInitialProductoForm = (productoParaEditar?: Producto | null) => {
+  if (!productoParaEditar) {
+    return emptyProducto;
+  }
+
+  const categoriaSeleccionada = productoParaEditar.categorias?.[0]?.id ?? '';
+
+  return {
+    nombre: productoParaEditar.nombre,
+    descripcion: productoParaEditar.descripcion,
+    precio_base: String(productoParaEditar.precio_base),
+    stock_cantidad: productoParaEditar.stock_cantidad,
+    imagen_url: productoParaEditar.imagen_url.join(', '),
+    disponible: productoParaEditar.disponible,
+    categoria_id: String(categoriaSeleccionada),
+    ingrediente_ids: productoParaEditar.ingredientes_relacionados?.map((ingrediente) => ingrediente.id) ?? [],
+  };
+};
+
 export const ProductoModal = ({
   isOpen,
   onClose,
@@ -33,26 +52,7 @@ export const ProductoModal = ({
   ingredientesDisponibles,
   productoParaEditar,
 }: Props) => {
-  const [form, setForm] = useState(emptyProducto);
-
-  useEffect(() => {
-    if (productoParaEditar) {
-      const categoriaSeleccionada = productoParaEditar.categorias?.[0]?.id ?? '';
-
-      setForm({
-        nombre: productoParaEditar.nombre,
-        descripcion: productoParaEditar.descripcion,
-        precio_base: String(productoParaEditar.precio_base),
-        stock_cantidad: productoParaEditar.stock_cantidad,
-        imagen_url: productoParaEditar.imagen_url.join(', '),
-        disponible: productoParaEditar.disponible,
-        categoria_id: String(categoriaSeleccionada),
-        ingrediente_ids: productoParaEditar.ingredientes_relacionados?.map((ingrediente) => ingrediente.id) ?? [],
-      });
-    } else if (isOpen) {
-      setForm(emptyProducto);
-    }
-  }, [productoParaEditar, isOpen]);
+  const [form, setForm] = useState(() => getInitialProductoForm(productoParaEditar));
 
   if (!isOpen) return null;
 
